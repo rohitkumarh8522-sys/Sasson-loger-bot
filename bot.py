@@ -1,15 +1,16 @@
 import os
 import asyncio
-from aiohttp import web
+import aiohttp
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+# Agar Render me ADMIN_ID nahi dala hoga, toh yeh 0 rahega (aur pehla user admin ban jayega)
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
-# Main Bot Client (in_memory=True taaki Render par file permission error na aaye)
+# Main Bot Client
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -30,14 +31,22 @@ def get_main_keyboard():
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
-    if message.from_user.id != ADMIN_ID:
+    global ADMIN_ID
+    user_id = message.from_user.id
+
+    # Agar ADMIN_ID set nahi hai, toh jo pehla command dega woh automatic Admin ban jayega!
+    if ADMIN_ID == 0:
+        ADMIN_ID = user_id
+        print(f"⚠️ ADMIN_ID automatically set to: {ADMIN_ID}")
+
+    if user_id != ADMIN_ID:
         await message.reply_text("⛔ Aap is bot ko use nahi kar sakte.")
         return
 
-    USER_STATE.pop(message.from_user.id, None)
+    USER_STATE.pop(user_id, None)
     await message.reply_text(
-        "🚀 **Advanced OTP & Account Manager Bot**\n\n"
-        "Welcome Admin! Niche diye gaye options se apne accounts control karein:",
+        "🚀 **Advanced OTP & Account Manager Bot (Active)**\n\n"
+        "Welcome Admin! Sabhi systems bilkul theek kaam kar rahe hain. Niche options chunein:",
         reply_markup=get_main_keyboard()
     )
 
@@ -53,9 +62,8 @@ async def callback_handler(client, callback_query: CallbackQuery):
     if data == "add_login":
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
-            "🔑 **Session Login (Advanced):**\n\n"
-            "Kripya apna poora **Pyrogram String Session** yahan bhejain:\n"
-            "*(Dhyan rahe koi bhi character miss na ho)*",
+            "🔑 **Session Login:**\n\n"
+            "Kripya apna poora **Pyrogram String Session** yahan bhejain:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
@@ -70,7 +78,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "📂 **Active Accounts Panel:**\n\nKisi bhi account ki details ya options ke liye us par click karein:",
+            "📂 **Active Accounts Panel:**\n\nKisi bhi account ki details ke liye us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
@@ -110,7 +118,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"manage_acc_{acc_id}")]])
                 )
             except Exception as e:
-                await callback_query.answer(f"Error fetching OTP: {str(e)}", show_alert=True)
+                await callback_query.answer(f"Error: {str(e)}", show_alert=True)
 
     elif data.startswith("exp_sess_"):
         acc_id = int(data.split("_")[2])
@@ -226,24 +234,29 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# Render ke liye Web Server (Port binding)
+# Render Web Server & Webhook Cleaner
 async def handle_web(request):
     return web.Response(text="Bot is running smoothly on Render!")
 
 async def main():
-    # Web server setup (Render port requirement fulfill karne ke liye)
-    web_app = web.Application()
+    # Purana webhook clear karna taaki messages block na ho
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
+            print("Webhook cleared status:", resp.status)
+
+    # Render Port Binding Web Server
+    web_app = aiohttp.web.Application()
     web_app.router.add_get("/", handle_web)
-    runner = web.AppRunner(web_app)
+    runner = aiohttp.web.AppRunner(web_app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
+    site = aiohttp.web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"Web server started on port {port}")
 
-    # Bot start karein
+    # Bot Start
     await app.start()
-    print("Bot is up and running!")
+    print("Bot is up and running successfully!")
     await idle()
 
 if __name__ == "__main__":

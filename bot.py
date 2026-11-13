@@ -1,13 +1,13 @@
 import os
 import asyncio
 import aiohttp
+from aiohttp import web  # Yeh line sabse zaroori hai
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-# Agar Render me ADMIN_ID nahi dala hoga, toh yeh 0 rahega (aur pehla user admin ban jayega)
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
 # Main Bot Client
@@ -19,7 +19,7 @@ app = Client(
     in_memory=True
 )
 
-USER_ACCOUNTS = {}  # {acc_id: {"client": client, "phone": phone, "name": name, "username": username, "session": session_string}}
+USER_ACCOUNTS = {}
 USER_STATE = {}
 
 def get_main_keyboard():
@@ -34,7 +34,6 @@ async def start_cmd(client, message: Message):
     global ADMIN_ID
     user_id = message.from_user.id
 
-    # Agar ADMIN_ID set nahi hai, toh jo pehla command dega woh automatic Admin ban jayega!
     if ADMIN_ID == 0:
         ADMIN_ID = user_id
         print(f"⚠️ ADMIN_ID automatically set to: {ADMIN_ID}")
@@ -46,7 +45,7 @@ async def start_cmd(client, message: Message):
     USER_STATE.pop(user_id, None)
     await message.reply_text(
         "🚀 **Advanced OTP & Account Manager Bot (Active)**\n\n"
-        "Welcome Admin! Sabhi systems bilkul theek kaam kar rahe hain. Niche options chunein:",
+        "Welcome Admin! Niche options chunein:",
         reply_markup=get_main_keyboard()
     )
 
@@ -234,27 +233,23 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# Render Web Server & Webhook Cleaner
 async def handle_web(request):
     return web.Response(text="Bot is running smoothly on Render!")
 
 async def main():
-    # Purana webhook clear karna taaki messages block na ho
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
             print("Webhook cleared status:", resp.status)
 
-    # Render Port Binding Web Server
-    web_app = aiohttp.web.Application()
+    web_app = web.Application()
     web_app.router.add_get("/", handle_web)
-    runner = aiohttp.web.AppRunner(web_app)
+    runner = web.AppRunner(web_app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = aiohttp.web.TCPSite(runner, "0.0.0.0", port)
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"Web server started on port {port}")
 
-    # Bot Start
     await app.start()
     print("Bot is up and running successfully!")
     await idle()

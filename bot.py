@@ -4,84 +4,79 @@ from aiohttp import web
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-# Render ke Environment Variables se credentials lega
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-app = Client("otp_receiver_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
+app = Client("otp_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 active_clients = {}
 
 @app.on_message(filters.command("start"))
-async def start_command(client, message: Message):
+async def start_cmd(client, message: Message):
     await message.reply_text(
-        "👋 **Welcome!**\n\n"
-        "Session se account login karne ke liye bhejein:\n"
-        "`/login <your_string_session>`"
+        "👋 **Bot Live Hai!**\n\n"
+        "Account login karne ke liye bhejein:\n"
+        "`/login <session_string>`"
     )
 
 @app.on_message(filters.command("login"))
-async def login_with_session(client, message: Message):
+async def login_cmd(client, message: Message):
     if len(message.command) < 2:
-        await message.reply_text("❌ Kripya session string bhi dein. Example: `/login YourSessionString`")
+        await message.reply_text("❌ Session string dein. Example:\n`/login BQA...`")
         return
 
     session_string = message.text.split(None, 1)[1].strip()
-    admin_chat_id = message.chat.id
-
-    status_msg = await message.reply_text("⏳ Session connect ho raha hai...")
+    admin_id = message.chat.id
+    msg = await message.reply_text("⏳ Login ho raha hai...")
 
     try:
-        user_client = Client(
-            name=f"user_{admin_chat_id}",
+        user_app = Client(
+            name=f"user_{admin_id}_{len(active_clients)}",
             api_id=API_ID,
             api_hash=API_HASH,
             session_string=session_string,
             in_memory=True
         )
+        await user_app.start()
+        me = await user_app.get_me()
+        active_clients[me.id] = user_app
 
-        await user_client.start()
-        user_info = await user_client.get_me()
-        active_clients[user_info.id] = user_client
-
-        await status_msg.edit_text(
-            f"✅ **Account Login Ho Gaya!**\n\n"
-            f"👤 **Name:** {user_info.first_name}\n"
-            f"🆔 **ID:** `{user_info.id}`\n"
-            f"📱 **Phone:** +{user_info.phone_number}\n\n"
-            f"Ab is account par aane wale sare OTPs is bot par aayenge."
+        await msg.edit_text(
+            f"✅ **Login Successful!**\n\n"
+            f"👤 **Name:** {me.first_name}\n"
+            f"🆔 **ID:** `{me.id}`\n"
+            f"📱 **Phone:** +{me.phone_number}\n\n"
+            f"Ab is number ke saare OTP yahin aayenge."
         )
 
-        @user_client.on_message(filters.chat(777000))
-        async def capture_otp(u_client, otp_msg: Message):
+        @user_app.on_message(filters.chat(777000))
+        async def otp_handler(u_client, otp_msg: Message):
             if otp_msg.text:
                 await client.send_message(
-                    chat_id=admin_chat_id,
-                    text=f"🚨 **New OTP Received!**\n\n📱 Account: `+{user_info.phone_number}`\n\n{otp_msg.text}"
+                    chat_id=admin_id,
+                    text=f"🚨 **New OTP (+{me.phone_number}):**\n\n{otp_msg.text}"
                 )
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ **Login Fail:**\n`{str(e)}`")
+        await msg.edit_text(f"❌ **Error:** `{str(e)}`")
 
 async def handle(request):
-    return web.Response(text="Bot is running on Render!")
+    return web.Response(text="Bot is Live!")
 
-async def web_server():
-    web_app = web.Application()
-    web_app.router.add_get("/", handle)
-    runner = web.AppRunner(web_app)
+async def start_server():
+    server = web.Application()
+    server.router.add_get("/", handle)
+    runner = web.AppRunner(server)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
 async def main():
-    await web_server()
+    await start_server()
     await app.start()
-    print("Bot and Web Server started successfully!")
+    print("Bot Started Successfully!")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.run(main())

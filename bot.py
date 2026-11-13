@@ -1,7 +1,7 @@
 import os
 import asyncio
 from aiohttp import web
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 API_ID = int(os.environ.get("API_ID", 0))
@@ -10,9 +10,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 app = Client("otp_manager_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Memory mein accounts store karne ke liye {user_id: {account_id: {"client": client, "phone": phone, "name": name}}}
+# Memory mein accounts store karne ke liye
 USER_ACCOUNTS = {}
-# Temporary state handle karne ke liye (jaise session input maangna)
 USER_STATE = {}
 
 def get_main_keyboard():
@@ -55,7 +54,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "📂 **Aapke Added Accounts:**\n\nJis account ka OTP ya status dekhna ho, us par click karein:",
+            "📂 **Aapke Added Accounts:**\n\nJis account ka status dekhna ho, us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
@@ -95,7 +94,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             del accounts[acc_id]
             await callback_query.answer("✅ Account successfully delete kar diya gaya!", show_alert=True)
             
-            # Refresh delete menu or go back
             if accounts:
                 buttons = []
                 for a_id, a_data in accounts.items():
@@ -153,7 +151,6 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-            # Telegram Official Service (777000) se OTP capture listener
             @user_client.on_message(filters.chat(777000))
             async def otp_listener(u_cli, otp_msg: Message):
                 if otp_msg.text:
@@ -172,7 +169,8 @@ async def handle_text_messages(client, message: Message):
 async def handle(request):
     return web.Response(text="Bot is running successfully!")
 
-async def start_web_server():
+async def main():
+    # Web server start karein
     web_app = web.Application()
     web_app.router.add_get("/", handle)
     runner = web.AppRunner(web_app)
@@ -180,12 +178,14 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    print(f"Web server started on port {port}")
 
-async def main():
-    await start_web_server()
+    # Pyrogram Bot start karein
     await app.start()
-    print("Bot started with buttons successfully!")
-    await asyncio.Event().wait()
+    print("Bot started successfully and listening for messages!")
+    
+    # Bot ko active rakhne ke liye idle() use karein
+    await idle()
 
 if __name__ == "__main__":
     asyncio.run(main())

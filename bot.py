@@ -2,14 +2,13 @@ import os
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.errors import FloodWait
 
-# Credentials load karna
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 0)) # Aapka Telegram Numeric ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
-# Main Bot Client
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -18,9 +17,8 @@ app = Client(
     in_memory=True
 )
 
-# Data storage (Advanced info ke sath)
-USER_ACCOUNTS = {}  # {account_id: {"client": client, "phone": phone, "name": name, "username": username, "session": session}}
-USER_STATE = {}     # User ke current action ko track karne ke liye
+USER_ACCOUNTS = {}
+USER_STATE = {}
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -29,7 +27,6 @@ def get_main_keyboard():
         [InlineKeyboardButton("🗑️ Delete Account", callback_data="delete_menu")]
     ])
 
-# 1. /start Command (Sirf Admin ke liye)
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -39,11 +36,10 @@ async def start_cmd(client, message: Message):
     USER_STATE.pop(message.from_user.id, None)
     await message.reply_text(
         "🚀 **Advanced OTP & Account Manager**\n\n"
-        "Welcome Admin! Apne accounts aur OTP manage karne ke liye niche diye gaye buttons ka use karein:",
+        "Welcome Admin! Niche diye gaye buttons ka use karein:",
         reply_markup=get_main_keyboard()
     )
 
-# 2. Inline Buttons Handler
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
     if callback_query.from_user.id != ADMIN_ID:
@@ -53,15 +49,13 @@ async def callback_handler(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     data = callback_query.data
 
-    # A. Login via Session Button Clicked
     if data == "add_login":
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
-            "🔑 **Session Login (Advanced):**\n\nKripya apna poora Pyrogram String Session yahan bhejain:",
+            "🔑 **Session Login:**\n\nKripya apna poora Pyrogram String Session yahan bhejain:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
-    # B. My Accounts List Button Clicked
     elif data == "list_accounts":
         if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Abhi tak koi account add nahi kiya gaya hai!", show_alert=True)
@@ -73,11 +67,10 @@ async def callback_handler(client, callback_query: CallbackQuery):
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "📂 **Active Accounts Panel:**\n\nKisi bhi account ki details ya options ke liye us par click karein:",
+            "📂 **Active Accounts Panel:**\n\nKisi bhi account ki details ke liye us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # C. Advanced Account Management Panel (Clicking a specific account)
     elif data.startswith("manage_acc_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -99,7 +92,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # D. Specific Account OTP Check
     elif data.startswith("get_otp_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -120,7 +112,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # E. Export Session String Feature
     elif data.startswith("exp_sess_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -130,7 +121,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"manage_acc_{acc_id}")]])
             )
 
-    # F. Delete Account Menu Clicked
     elif data == "delete_menu":
         if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Delete karne ke liye koi account available nahi hai!", show_alert=True)
@@ -146,7 +136,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # G. Actual Delete Execution
     elif data.startswith("del_acc_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -168,7 +157,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # H. Back Button Handler
     elif data == "go_back":
         USER_STATE.pop(user_id, None)
         await callback_query.message.edit_text(
@@ -176,7 +164,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
-# 3. Text Message Handler (Session String Receive & Error Handling)
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -192,7 +179,6 @@ async def handle_text_messages(client, message: Message):
         status_msg = await message.reply_text("⏳ Session verify ho raha hai aur account connect kiya ja raha hai...")
 
         try:
-            # User ka session client start karna
             user_client = Client(
                 name=f"usr_{os.urandom(4).hex()}",
                 api_id=API_ID,
@@ -203,7 +189,6 @@ async def handle_text_messages(client, message: Message):
             await user_client.start()
             me = await user_client.get_me()
 
-            # Account ko global list me advanced info ke sath save karna
             USER_ACCOUNTS[me.id] = {
                 "client": user_client,
                 "phone": me.phone_number,
@@ -221,7 +206,6 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-            # Is specific user client ke liye OTP listener (777000)
             @user_client.on_message(filters.chat(777000))
             async def otp_listener(u_cli, otp_msg: Message):
                 if otp_msg.text:
@@ -232,7 +216,6 @@ async def handle_text_messages(client, message: Message):
 
         except Exception as e:
             error_text = str(e)
-            # Buffer / Unpack error ko easily handle karne ke liye
             if "unpack requires a buffer" in error_text or "string" in error_text.lower():
                 err_msg = "❌ **Invalid Session String!**\nAapne jo session string di hai woh adhoori ya galat hai. Kripya poori sahi Pyrogram session string copy karke dobara bhejein."
             else:
@@ -243,6 +226,23 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# Bot Run Function (Render par Background Worker ke liye perfect)
+# Safe Startup with FloodWait protection
+async def main():
+    while True:
+        try:
+            print("Starting bot client...")
+            await app.start()
+            print("Bot started successfully!")
+            break
+        except FloodWait as e:
+            print(f"FloodWait encountered! Sleeping for {e.value} seconds...")
+            await asyncio.sleep(e.value)
+        except Exception as e:
+            print(f"Error starting bot: {e}")
+            await asyncio.sleep(10)
+
 if __name__ == "__main__":
-    app.run()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    from pyrogram import idle
+    loop.run_until_complete(idle())

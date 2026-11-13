@@ -1,6 +1,6 @@
 import os
 import asyncio
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # Credentials load karna
@@ -18,14 +18,14 @@ app = Client(
     in_memory=True
 )
 
-# Data storage
-USER_ACCOUNTS = {}  # {account_id: {"client": client, "phone": phone, "name": name}}
+# Data storage (Advanced info ke sath)
+USER_ACCOUNTS = {}  # {account_id: {"client": client, "phone": phone, "name": name, "username": username, "session": session}}
 USER_STATE = {}     # User ke current action ko track karne ke liye
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Login via Session", callback_data="add_login")],
-        [InlineKeyboardButton("📂 My Accounts", callback_data="list_accounts")],
+        [InlineKeyboardButton("📂 Manage Accounts", callback_data="list_accounts")],
         [InlineKeyboardButton("🗑️ Delete Account", callback_data="delete_menu")]
     ])
 
@@ -38,8 +38,8 @@ async def start_cmd(client, message: Message):
 
     USER_STATE.pop(message.from_user.id, None)
     await message.reply_text(
-        "👋 **Welcome Admin!**\n\n"
-        "Apne accounts aur OTP manage karne ke liye niche diye gaye buttons ka use karein:",
+        "🚀 **Advanced OTP & Account Manager**\n\n"
+        "Welcome Admin! Apne accounts aur OTP manage karne ke liye niche diye gaye buttons ka use karein:",
         reply_markup=get_main_keyboard()
     )
 
@@ -57,7 +57,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
     if data == "add_login":
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
-            "🔑 **Session Login:**\n\nKripya apna Pyrogram String Session yahan bhejain:",
+            "🔑 **Session Login (Advanced):**\n\nKripya apna poora Pyrogram String Session yahan bhejain:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
@@ -69,37 +69,68 @@ async def callback_handler(client, callback_query: CallbackQuery):
 
         buttons = []
         for acc_id, acc_data in USER_ACCOUNTS.items():
-            buttons.append([InlineKeyboardButton(f"📱 +{acc_data['phone']} ({acc_data['name']})", callback_data=f"get_otp_{acc_id}")])
+            buttons.append([InlineKeyboardButton(f"📱 +{acc_data['phone']} | {acc_data['name']}", callback_data=f"manage_acc_{acc_id}")])
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "📂 **Aapke Added Accounts:**\n\nJis account ka latest status ya OTP check karna ho, us par click karein:",
+            "📂 **Active Accounts Panel:**\n\nKisi bhi account ki details ya options ke liye us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # C. Specific Account Clicked from List
+    # C. Advanced Account Management Panel (Clicking a specific account)
+    elif data.startswith("manage_acc_"):
+        acc_id = int(data.split("_")[2])
+        if acc_id in USER_ACCOUNTS:
+            acc = USER_ACCOUNTS[acc_id]
+            text = (
+                f"👤 **Account Details:**\n\n"
+                f"• **Name:** {acc['name']}\n"
+                f"• **Username:** @{acc['username'] if acc['username'] else 'None'}\n"
+                f"• **Phone:** +{acc['phone']}\n"
+                f"• **ID:** `{acc_id}`\n\n"
+                f"Status: **Online & Listening for OTP 🟢**"
+            )
+            buttons = [
+                [InlineKeyboardButton("📩 Check Latest OTP", callback_data=f"get_otp_{acc_id}")],
+                [InlineKeyboardButton("📤 Export Session String", callback_data=f"exp_sess_{acc_id}")],
+                [InlineKeyboardButton("« Back to Accounts", callback_data="list_accounts")]
+            ]
+            await callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await callback_query.answer("❌ Account nahi mila.", show_alert=True)
+
+    # D. Specific Account OTP Check
     elif data.startswith("get_otp_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
             acc_data = USER_ACCOUNTS[acc_id]
             u_cli = acc_data["client"]
             try:
-                # Telegram official notifications (777000) se aakhiri message nikalna
-                last_msg = "Koi naya message nahi mila."
+                last_msg = "Telegram (777000) se abhi tak koi message nahi mila."
                 async for msg in u_cli.get_chat_history(777000, limit=1):
                     if msg.text:
                         last_msg = msg.text
                 
                 await callback_query.message.edit_text(
                     f"📩 **Latest OTP for +{acc_data['phone']}:**\n\n{last_msg}",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Accounts", callback_data="list_accounts")]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"manage_acc_{acc_id}")]])
                 )
             except Exception as e:
-                await callback_query.answer(f"✅ Account active hai (+{acc_data['phone']}). Naya OTP aate hi auto-forward hoga.", show_alert=True)
+                await callback_query.answer(f"✅ Account active hai. Error: {str(e)}", show_alert=True)
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # D. Delete Account Menu Clicked
+    # E. Export Session String Feature
+    elif data.startswith("exp_sess_"):
+        acc_id = int(data.split("_")[2])
+        if acc_id in USER_ACCOUNTS:
+            session_str = USER_ACCOUNTS[acc_id]["session"]
+            await callback_query.message.edit_text(
+                f"📤 **Session String for +{USER_ACCOUNTS[acc_id]['phone']}:**\n\n`{session_str}`",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"manage_acc_{acc_id}")]])
+            )
+
+    # F. Delete Account Menu Clicked
     elif data == "delete_menu":
         if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Delete karne ke liye koi account available nahi hai!", show_alert=True)
@@ -115,7 +146,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # E. Actual Delete Execution
+    # G. Actual Delete Execution
     elif data.startswith("del_acc_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -137,7 +168,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # F. Back Button Handler
+    # H. Back Button Handler
     elif data == "go_back":
         USER_STATE.pop(user_id, None)
         await callback_query.message.edit_text(
@@ -145,7 +176,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
-# 3. Text Message Handler (Session String Receive karne ke liye)
+# 3. Text Message Handler (Session String Receive & Error Handling)
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -172,11 +203,13 @@ async def handle_text_messages(client, message: Message):
             await user_client.start()
             me = await user_client.get_me()
 
-            # Account ko global list me save karna
+            # Account ko global list me advanced info ke sath save karna
             USER_ACCOUNTS[me.id] = {
                 "client": user_client,
                 "phone": me.phone_number,
-                "name": me.first_name
+                "name": me.first_name,
+                "username": me.username,
+                "session": session_string
             }
 
             await status_msg.edit_text(
@@ -198,11 +231,18 @@ async def handle_text_messages(client, message: Message):
                     )
 
         except Exception as e:
+            error_text = str(e)
+            # Buffer / Unpack error ko easily handle karne ke liye
+            if "unpack requires a buffer" in error_text or "string" in error_text.lower():
+                err_msg = "❌ **Invalid Session String!**\nAapne jo session string di hai woh adhoori ya galat hai. Kripya poori sahi Pyrogram session string copy karke dobara bhejein."
+            else:
+                err_msg = f"❌ **Login Fail Ho Gaya:**\n`{error_text}`"
+
             await status_msg.edit_text(
-                f"❌ **Login Fail Ho Gaya:**\n`{str(e)}`",
+                err_msg,
                 reply_markup=get_main_keyboard()
             )
 
-# Bot Run Function
+# Bot Run Function (Render par Background Worker ke liye perfect)
 if __name__ == "__main__":
     app.run()

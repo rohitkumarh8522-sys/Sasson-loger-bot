@@ -11,7 +11,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 app = Client("otp_receiver_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Active user sessions ko memory mein rakhne ke liye
 active_clients = {}
 
 @app.on_message(filters.command("start"))
@@ -54,7 +53,6 @@ async def login_with_session(client, message: Message):
             f"Ab is account par aane wale sare OTPs is bot par aayenge."
         )
 
-        # Official Telegram Service (777000) se aane wale OTP messages ko forward karna
         @user_client.on_message(filters.chat(777000))
         async def capture_otp(u_client, otp_msg: Message):
             if otp_msg.text:
@@ -66,11 +64,10 @@ async def login_with_session(client, message: Message):
     except Exception as e:
         await status_msg.edit_text(f"❌ **Login Fail:**\n`{str(e)}`")
 
-# Render ke liye dummy web server (Port binding ke liye zaroori)
 async def handle(request):
     return web.Response(text="Bot is running on Render!")
 
-async def start_web_server():
+async def web_server():
     web_app = web.Application()
     web_app.router.add_get("/", handle)
     runner = web.AppRunner(web_app)
@@ -80,11 +77,11 @@ async def start_web_server():
     await site.start()
 
 async def main():
-    await start_web_server()
+    await web_server()
     await app.start()
     print("Bot and Web Server started successfully!")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
-  
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    loop.run_until_complete(main())

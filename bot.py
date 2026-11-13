@@ -1,22 +1,15 @@
 import os
 import asyncio
-import urllib.request
-from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
+# Credentials load karna
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))  # Sirf aapka Telegram ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0)) # Aapka Telegram Numeric ID
 
-# Purana koi webhook laga ho toh usko hatane ke liye (Isi wajah se bot response nahi deta)
-try:
-    urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true")
-except Exception as e:
-    print(f"Webhook clear warning: {e}")
-
-# Main Bot Client (in_memory=True taaki Render par koi file error na aaye)
+# Main Bot Client
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -25,11 +18,9 @@ app = Client(
     in_memory=True
 )
 
-USER_ACCOUNTS = {}
-USER_STATE = {}
-
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_ID
+# Data storage
+USER_ACCOUNTS = {}  # {account_id: {"client": client, "phone": phone, "name": name}}
+USER_STATE = {}     # User ke current action ko track karne ke liye
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -38,29 +29,31 @@ def get_main_keyboard():
         [InlineKeyboardButton("🗑️ Delete Account", callback_data="delete_menu")]
     ])
 
+# 1. /start Command (Sirf Admin ke liye)
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
-        await message.reply_text("⛔ **Access Denied!** Ye bot sirf Admin ke liye hai.")
+    if message.from_user.id != ADMIN_ID:
+        await message.reply_text("⛔ Aap is bot ko use nahi kar sakte.")
         return
 
-    USER_STATE.pop(user_id, None)
+    USER_STATE.pop(message.from_user.id, None)
     await message.reply_text(
         "👋 **Welcome Admin!**\n\n"
-        "Niche diye gaye buttons se apne accounts manage karein:",
+        "Apne accounts aur OTP manage karne ke liye niche diye gaye buttons ka use karein:",
         reply_markup=get_main_keyboard()
     )
 
+# 2. Inline Buttons Handler
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
-    user_id = callback_query.from_user.id
-    if not is_admin(user_id):
-        await callback_query.answer("⛔ Access Denied! Sirf Admin use kar sakta hai.", show_alert=True)
+    if callback_query.from_user.id != ADMIN_ID:
+        await callback_query.answer("⛔ Ye bot sirf Admin ke liye hai!", show_alert=True)
         return
 
+    user_id = callback_query.from_user.id
     data = callback_query.data
 
+    # A. Login via Session Button Clicked
     if data == "add_login":
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
@@ -68,76 +61,74 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
+    # B. My Accounts List Button Clicked
     elif data == "list_accounts":
-        accounts = USER_ACCOUNTS.get(user_id, {})
-        if not accounts:
+        if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Abhi tak koi account add nahi kiya gaya hai!", show_alert=True)
             return
 
         buttons = []
-        for acc_id, acc_data in accounts.items():
+        for acc_id, acc_data in USER_ACCOUNTS.items():
             buttons.append([InlineKeyboardButton(f"📱 +{acc_data['phone']} ({acc_data['name']})", callback_data=f"get_otp_{acc_id}")])
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "📂 **Added Accounts List:**\n\nJis account ka latest OTP check karna ho us par click karein:",
+            "📂 **Aapke Added Accounts:**\n\nJis account ka latest status ya OTP check karna ho, us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
+    # C. Specific Account Clicked from List
     elif data.startswith("get_otp_"):
         acc_id = int(data.split("_")[2])
-        accounts = USER_ACCOUNTS.get(user_id, {})
-        if acc_id in accounts:
-            acc_data = accounts[acc_id]
+        if acc_id in USER_ACCOUNTS:
+            acc_data = USER_ACCOUNTS[acc_id]
             u_cli = acc_data["client"]
             try:
-                # Official Telegram chat (777000) se last message fetch karna
-                last_msg = None
+                # Telegram official notifications (777000) se aakhiri message nikalna
+                last_msg = "Koi naya message nahi mila."
                 async for msg in u_cli.get_chat_history(777000, limit=1):
-                    last_msg = msg.text
+                    if msg.text:
+                        last_msg = msg.text
                 
-                if last_msg:
-                    await callback_query.message.edit_text(
-                        f"📩 **Latest OTP / Message for +{acc_data['phone']}:**\n\n{last_msg}",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Accounts", callback_data="list_accounts")]])
-                    )
-                else:
-                    await callback_query.answer(f"✅ +{acc_data['phone']} Active hai! Naya OTP aate hi yahin milega.", show_alert=True)
+                await callback_query.message.edit_text(
+                    f"📩 **Latest OTP for +{acc_data['phone']}:**\n\n{last_msg}",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Accounts", callback_data="list_accounts")]])
+                )
             except Exception as e:
-                await callback_query.answer(f"✅ +{acc_data['phone']} Active hai! Naya OTP aate hi yahin aayega.", show_alert=True)
+                await callback_query.answer(f"✅ Account active hai (+{acc_data['phone']}). Naya OTP aate hi auto-forward hoga.", show_alert=True)
         else:
-            await callback_query.answer("❌ Account nahi mila ya disconnect ho gaya.", show_alert=True)
+            await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
+    # D. Delete Account Menu Clicked
     elif data == "delete_menu":
-        accounts = USER_ACCOUNTS.get(user_id, {})
-        if not accounts:
-            await callback_query.answer("⚠️ Delete karne ke liye koi account nahi hai!", show_alert=True)
+        if not USER_ACCOUNTS:
+            await callback_query.answer("⚠️ Delete karne ke liye koi account available nahi hai!", show_alert=True)
             return
 
         buttons = []
-        for acc_id, acc_data in accounts.items():
+        for acc_id, acc_data in USER_ACCOUNTS.items():
             buttons.append([InlineKeyboardButton(f"❌ Delete: +{acc_data['phone']}", callback_data=f"del_acc_{acc_id}")])
         buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
 
         await callback_query.message.edit_text(
-            "🗑️ **Delete Account:**\n\nJis account ko hatana ho us par click karein:",
+            "🗑️ **Delete Account:**\n\nJis account ko hatana ho, us par click karein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
+    # E. Actual Delete Execution
     elif data.startswith("del_acc_"):
         acc_id = int(data.split("_")[2])
-        accounts = USER_ACCOUNTS.get(user_id, {})
-        if acc_id in accounts:
+        if acc_id in USER_ACCOUNTS:
             try:
-                await accounts[acc_id]["client"].stop()
+                await USER_ACCOUNTS[acc_id]["client"].stop()
             except:
                 pass
-            del accounts[acc_id]
-            await callback_query.answer("✅ Account delete ho gaya!", show_alert=True)
+            del USER_ACCOUNTS[acc_id]
+            await callback_query.answer("✅ Account successfully delete kar diya gaya!", show_alert=True)
             
-            if accounts:
+            if USER_ACCOUNTS:
                 buttons = []
-                for a_id, a_data in accounts.items():
+                for a_id, a_data in USER_ACCOUNTS.items():
                     buttons.append([InlineKeyboardButton(f"❌ Delete: +{a_data['phone']}", callback_data=f"del_acc_{a_id}")])
                 buttons.append([InlineKeyboardButton("« Back", callback_data="go_back")])
                 await callback_query.message.edit_text("🗑️ **Delete Account:**", reply_markup=InlineKeyboardMarkup(buttons))
@@ -146,6 +137,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
+    # F. Back Button Handler
     elif data == "go_back":
         USER_STATE.pop(user_id, None)
         await callback_query.message.edit_text(
@@ -153,22 +145,25 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
+# 3. Text Message Handler (Session String Receive karne ke liye)
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
+    if message.from_user.id != ADMIN_ID:
         return
 
+    user_id = message.from_user.id
     state = USER_STATE.get(user_id)
+
     if state == "awaiting_session":
         session_string = message.text.strip()
         USER_STATE.pop(user_id, None)
         
-        status_msg = await message.reply_text("⏳ Session connect ho raha hai...")
+        status_msg = await message.reply_text("⏳ Session verify ho raha hai aur account connect kiya ja raha hai...")
 
         try:
+            # User ka session client start karna
             user_client = Client(
-                name=f"usr_{user_id}_{os.urandom(4).hex()}",
+                name=f"usr_{os.urandom(4).hex()}",
                 api_id=API_ID,
                 api_hash=API_HASH,
                 session_string=session_string,
@@ -177,55 +172,37 @@ async def handle_text_messages(client, message: Message):
             await user_client.start()
             me = await user_client.get_me()
 
-            if user_id not in USER_ACCOUNTS:
-                USER_ACCOUNTS[user_id] = {}
-
-            USER_ACCOUNTS[user_id][me.id] = {
+            # Account ko global list me save karna
+            USER_ACCOUNTS[me.id] = {
                 "client": user_client,
                 "phone": me.phone_number,
                 "name": me.first_name
             }
 
             await status_msg.edit_text(
-                f"✅ **Account Login Ho Gaya!**\n\n"
+                f"✅ **Account Successfully Login Ho Gaya!**\n\n"
                 f"👤 **Name:** {me.first_name}\n"
                 f"🆔 **ID:** `{me.id}`\n"
-                f"📱 **Phone:** +{me.phone_number}",
+                f"📱 **Phone:** +{me.phone_number}\n\n"
+                f"Ab is account par aane wale sare OTPs is bot par auto-forward honge.",
                 reply_markup=get_main_keyboard()
             )
 
-            # Live OTP Listener
+            # Is specific user client ke liye OTP listener (777000)
             @user_client.on_message(filters.chat(777000))
             async def otp_listener(u_cli, otp_msg: Message):
                 if otp_msg.text:
                     await client.send_message(
-                        chat_id=user_id,
+                        chat_id=ADMIN_ID,
                         text=f"🚨 **New OTP Received!**\n\n📱 Account: `+{me.phone_number}`\n\n{otp_msg.text}"
                     )
 
         except Exception as e:
             await status_msg.edit_text(
-                f"❌ **Login Fail:**\n`{str(e)}`",
+                f"❌ **Login Fail Ho Gaya:**\n`{str(e)}`",
                 reply_markup=get_main_keyboard()
             )
 
-async def handle(request):
-    return web.Response(text="Bot is Live and Running!")
-
-async def main():
-    web_app = web.Application()
-    web_app.router.add_get("/", handle)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server running on port {port}")
-
-    await app.start()
-    me = await app.get_me()
-    print(f"Bot @{me.username} is ONLINE and ready!")
-    await idle()
-
+# Bot Run Function
 if __name__ == "__main__":
-    asyncio.run(main())
+    app.run()

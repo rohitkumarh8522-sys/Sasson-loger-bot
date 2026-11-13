@@ -1,5 +1,6 @@
 import os
 import asyncio
+from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -8,6 +9,7 @@ API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
+# Main Bot Client (in_memory=True taaki Render par file permission error na aaye)
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -213,7 +215,6 @@ async def handle_text_messages(client, message: Message):
                     )
 
         except Exception as e:
-            # Yeh error handle karega agar session string galat ya adhoori hogi
             error_text = str(e)
             if "unpack requires a buffer" in error_text or "string" in error_text.lower():
                 err_msg = "❌ **Invalid Session String!**\nAapne jo session string di hai woh adhoori ya galat hai. Kripya poori sahi Pyrogram session string copy karke dobara bhejein."
@@ -225,5 +226,25 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
+# Render ke liye Web Server (Port binding)
+async def handle_web(request):
+    return web.Response(text="Bot is running smoothly on Render!")
+
+async def main():
+    # Web server setup (Render port requirement fulfill karne ke liye)
+    web_app = web.Application()
+    web_app.router.add_get("/", handle_web)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
+    # Bot start karein
+    await app.start()
+    print("Bot is up and running!")
+    await idle()
+
 if __name__ == "__main__":
-    app.run()
+    asyncio.run(main())
